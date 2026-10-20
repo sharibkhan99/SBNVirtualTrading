@@ -599,8 +599,8 @@ public class MainActivity extends Activity {
         if(ps.isEmpty()){Toast.makeText(this,"Search a symbol first",Toast.LENGTH_SHORT).show();return;}
         final int q=paper.qty(ps);
         if(q==0){Toast.makeText(this,"Open a virtual position first, then attach SL/Target",Toast.LENGTH_LONG).show();return;}
-        double mark=lastTradePrice();
-        if(mark<=0)mark=paper.avg(ps);
+        final double markValue=lastTradePrice();
+        final double mark=markValue>0?markValue:paper.avg(ps);
         LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(20),dp(8),dp(20),0);
         TextView info=label(ps+" • "+(q>0?"LONG ":"SHORT ")+Math.abs(q)+" units\nAverage ₹"+fmt(paper.avg(ps))+" • Current ₹"+fmt(mark)+"\nAttach virtual exit orders independently of chart lines.",14);
         EditText sl=new EditText(this);sl.setHint("Stop-loss trigger price (optional)");sl.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
