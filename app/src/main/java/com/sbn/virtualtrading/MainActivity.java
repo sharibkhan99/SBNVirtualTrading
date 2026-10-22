@@ -99,6 +99,12 @@ public class MainActivity extends Activity {
         updateTfHighlight();
         chart=new TradingChartView(this);
         chart.setRiskLineListener((type,value)->applyChartRisk(type,value));
+        chart.setCandleSelectionListener(candle -> {
+            status.setText("HISTORICAL CANDLE • "+formatCandleTime(candle.time)
+                +" • O ₹"+fmt(candle.open)+" H ₹"+fmt(candle.high)
+                +" L ₹"+fmt(candle.low)+" C ₹"+fmt(candle.close)
+                +" • Live LTP remains separate");
+        });
         root.addView(chart,new LinearLayout.LayoutParams(-1,0,1));
 
         status=label("",13);root.addView(status);

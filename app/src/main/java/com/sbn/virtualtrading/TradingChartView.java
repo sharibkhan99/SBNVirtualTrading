@@ -26,6 +26,9 @@ public class TradingChartView extends View {
     private final RectF slButton=new RectF(), targetButton=new RectF();
     public interface RiskLineListener{void onRiskLineChanged(String type,double price);}
     private RiskLineListener riskLineListener;
+    public interface CandleSelectionListener{void onCandleSelected(Candle candle);}
+    private CandleSelectionListener candleSelectionListener;
+    public void setCandleSelectionListener(CandleSelectionListener l){candleSelectionListener=l;}
     private final int bg=Color.rgb(15,18,23),grid=Color.rgb(43,47,54),text=Color.rgb(190,194,202),up=Color.rgb(38,166,154),down=Color.rgb(239,83,80),accent=Color.rgb(41,121,255);
     private static final TimeZone IST=TimeZone.getTimeZone("Asia/Kolkata");
 
@@ -154,5 +157,5 @@ public class TradingChartView extends View {
         }
         return true;
     }
-    private void selectAt(float x){float plotW=Math.max(dp(120),getWidth()-dp(72));if(x>plotW)return;Window w=window(plotW);int idx=w.start+(int)(x/Math.max(1,w.step));if(idx>=w.start&&idx<w.end){selectedIndex=idx;invalidate();}}
+    private void selectAt(float x){float plotW=Math.max(dp(120),getWidth()-dp(72));if(x>plotW)return;Window w=window(plotW);int idx=w.start+(int)(x/Math.max(1,w.step));if(idx>=w.start&&idx<w.end){selectedIndex=idx;invalidate();if(candleSelectionListener!=null)candleSelectionListener.onCandleSelected(data.get(idx));}}
 }
