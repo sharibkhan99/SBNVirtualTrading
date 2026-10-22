@@ -100,10 +100,11 @@ public class MainActivity extends Activity {
         chart=new TradingChartView(this);
         chart.setRiskLineListener((type,value)->applyChartRisk(type,value));
         chart.setCandleSelectionListener(candle -> {
+            price.setText("HIST CLOSE ₹"+fmt(candle.close));
             status.setText("HISTORICAL CANDLE • "+formatCandleTime(candle.time)
                 +" • O ₹"+fmt(candle.open)+" H ₹"+fmt(candle.high)
                 +" L ₹"+fmt(candle.low)+" C ₹"+fmt(candle.close)
-                +" • Live LTP remains separate");
+                +" • LIVE LTP ₹"+fmt(lastLtpPrice));
         });
         root.addView(chart,new LinearLayout.LayoutParams(-1,0,1));
 
@@ -334,7 +335,19 @@ public class MainActivity extends Activity {
         if(!validate(true))return;
         final String tok=token.getText().toString().trim(), cid=clientId.getText().toString().trim();
         price.setText("LTP: loading…");
-        withResolvedSid((sid,seg,type)->{try{double p=DhanRepository.ltp(tok,cid,sid,seg);runOnUiThread(()->{lastLtpPrice=p;price.setText(symbol.getText()+"  LTP ₹"+fmt(p));chart.setLivePrice(p);PaperTradingManager.RiskEvent ev=paper.checkPrice(paperSymbol(),p);refreshPaperOverlay(p);if(ev!=null)status.setText("PAPER "+ev.type+" HIT • "+paperSymbol()+" exit ₹"+fmt(ev.exitPrice)+" • Qty "+ev.closedQty+" • Realized ₹"+fmt(ev.realizedAfter));else status.setText("Live price loaded • Paper P&L updated");});}catch(Exception e){runOnUiThread(()->{price.setText("LTP: ERROR");status.setText("LTP error: "+errorText(e));});}});
+        withResolvedSid((sid,seg,type)->{try{double p=DhanRepository.ltp(tok,cid,sid,seg);runOnUiThread(()->{
+            lastLtpPrice=p;
+            boolean replay=chart!=null&&chart.isReplayMode();
+            price.setText(replay
+                ? "LIVE LTP ₹"+fmt(p)+" • REPLAY ₹"+fmt(chart.executionPrice())
+                : symbol.getText()+"  LTP ₹"+fmt(p));
+            chart.setLivePrice(p);
+            PaperTradingManager.RiskEvent ev=replay?null:paper.checkPrice(paperSymbol(),p);
+            refreshPaperOverlay(replay?chart.executionPrice():p);
+            if(replay)status.setText("Replay active • live LTP refreshed separately");
+            else if(ev!=null)status.setText("PAPER "+ev.type+" HIT • "+paperSymbol()+" exit ₹"+fmt(ev.exitPrice)+" • Qty "+ev.closedQty+" • Realized ₹"+fmt(ev.realizedAfter));
+            else status.setText("Live price loaded • Paper P&L updated");
+        });}catch(Exception e){runOnUiThread(()->{price.setText("LTP: ERROR");status.setText("LTP error: "+errorText(e));});}});
     }
 
     void showGoToDialog(){
@@ -675,7 +688,12 @@ public class MainActivity extends Activity {
         if(currentData==null||currentData.isEmpty()){Toast.makeText(this,"Load historical candles first",Toast.LENGTH_SHORT).show();return;}
         pauseReplay();
         int idx=chart.startReplayAtSelected();
-        if(idx>=0){Candle c=chart.getCandle(idx);refreshPaperOverlay(c.close);status.setText("MANUAL BACKTEST / REPLAY • "+formatCandleTime(c.time)+" • C ₹"+fmt(c.close)+" • future candles hidden");}
+        if(idx>=0){
+            Candle c=chart.getCandle(idx);
+            price.setText("REPLAY CLOSE ₹"+fmt(c.close));
+            refreshPaperOverlay(c.close);
+            status.setText("MANUAL BACKTEST / REPLAY • "+formatCandleTime(c.time)+" • C ₹"+fmt(c.close)+" • future candles hidden");
+        }
     }
 
     void replayNext(){
@@ -683,7 +701,9 @@ public class MainActivity extends Activity {
         int idx=chart.stepReplay();
         Candle c=chart.getCandle(idx);
         if(c!=null){
-            PaperTradingManager.RiskEvent ev=paper.checkCandle(paperSymbol(),c.high,c.low);refreshPaperOverlay(c.close);
+            price.setText("REPLAY CLOSE ₹"+fmt(c.close));
+            PaperTradingManager.RiskEvent ev=paper.checkCandle(paperSymbol(),c.high,c.low);
+            refreshPaperOverlay(c.close);
             if(ev!=null){
                 status.setText("REPLAY • PAPER "+ev.type+" HIT • "+paperSymbol()+" exit ₹"+fmt(ev.exitPrice)+" • Qty "+ev.closedQty+" • Realized ₹"+fmt(ev.realizedAfter)+" • "+formatCandleTime(c.time));
                 pauseReplay();
@@ -711,7 +731,13 @@ public class MainActivity extends Activity {
     }
 
     void stopReplay(){
-        pauseReplay(); chart.stopReplay(); refreshPaperOverlay(); status.setText("Replay reset • all historical candles visible");
+        pauseReplay();
+        chart.stopReplay();
+        if(lastLtpPrice>0&&!Double.isNaN(lastLtpPrice)&&!Double.isInfinite(lastLtpPrice))
+            price.setText(symbol.getText()+"  LTP ₹"+fmt(lastLtpPrice));
+        else price.setText("LTP: --");
+        refreshPaperOverlay();
+        status.setText("Replay reset • all historical candles visible");
     }
 
     void showReplaySpeed(Button b){
