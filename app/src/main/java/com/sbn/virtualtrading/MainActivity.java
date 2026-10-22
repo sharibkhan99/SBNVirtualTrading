@@ -874,49 +874,6 @@ public class MainActivity extends Activity {
 
             double sl = parseOptionalPrice(slField);
             double tgt = parseOptionalPrice(targetField);
-
-            int oldQty = paper.qty(ps);
-            double oldAvg = paper.avg(ps);
-            int signedOrder = buy ? orderQty : -orderQty;
-            int projected = oldQty + signedOrder;
-
-            double entry = 0;
-            if (projected != 0) {
-                if (oldQty == 0 || Integer.signum(oldQty) == Integer.signum(signedOrder)) {
-                    entry = oldQty == 0 ? px
-                            : ((Math.abs((double) oldQty) * oldAvg) + (orderQty * px))
-                            / (Math.abs((double) oldQty) + orderQty);
-                } else if (Integer.signum(projected) == Integer.signum(oldQty)) {
-                    entry = oldAvg;
-                } else {
-                    entry = px;
-                }
-            }
-
-            if (projected > 0) {
-                if (sl > 0 && sl >= entry) {
-                    Toast.makeText(this, "LONG SL must be below average entry ₹" + fmt(entry),
-                            Toast.LENGTH_LONG).show();
-                    return;
-                }
-                if (tgt > 0 && tgt <= entry) {
-                    Toast.makeText(this, "LONG Target must be above average entry ₹" + fmt(entry),
-                            Toast.LENGTH_LONG).show();
-                    return;
-                }
-            } else if (projected < 0) {
-                if (sl > 0 && sl <= entry) {
-                    Toast.makeText(this, "SHORT SL must be above average entry ₹" + fmt(entry),
-                            Toast.LENGTH_LONG).show();
-                    return;
-                }
-                if (tgt > 0 && tgt >= entry) {
-                    Toast.makeText(this, "SHORT Target must be below average entry ₹" + fmt(entry),
-                            Toast.LENGTH_LONG).show();
-                    return;
-                }
-            }
-
             String err = paper.trade(ps, buy, orderQty, px);
             if (err != null) {
                 Toast.makeText(this, err, Toast.LENGTH_LONG).show();
@@ -924,8 +881,7 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            if (paper.qty(ps) != 0) paper.setRisk(ps, sl, tgt);
-            else paper.clearRisk(ps);
+            paper.clearRisk(ps);
 
             refreshPaperOverlay(px);
             status.setText("PAPER " + (buy ? "BUY" : "SELL") + " " + ps

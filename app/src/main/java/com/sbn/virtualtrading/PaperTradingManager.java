@@ -97,36 +97,27 @@ public final class PaperTradingManager {
      */
     public String trade(String symbol,boolean buy,int q,double price){
         if(q<=0)return "Quantity must be greater than 0";
-        if(price<=0||Double.isNaN(price)||Double.isInfinite(price))return "Invalid execution price";
+        if(price<=0||Double.isNaN(price)||Double.isInfinite(price))
+            return "Invalid execution price";
 
         registerSymbol(symbol);
-        int oldQ=qty(symbol); double oldAvg=avg(symbol), real=realized(symbol), cash=balance();
-        double orderValue=q*price;
-        if(buy && oldQ>=0 && cash+1e-9<orderValue)
-            return "Insufficient paper cash • Need ₹"+String.format(Locale.US,"%.2f",orderValue)+" • Available ₹"+String.format(Locale.US,"%.2f",cash);
 
-        int signed=buy?q:-q;
-        int newQ=oldQ+signed;
-        double newAvg=oldAvg;
+        int newQty = buy ? q : -q;
+        double cash = balance();
+        double orderValue = q * price;
 
-        if(oldQ==0 || Integer.signum(oldQ)==Integer.signum(signed)){
-            newAvg=(Math.abs(oldQ)*oldAvg + q*price)/(Math.abs(oldQ)+q);
-        }else{
-            int closing=Math.min(Math.abs(oldQ),q);
-            real+=(oldQ>0?(price-oldAvg):(oldAvg-price))*closing;
-            if(newQ==0)newAvg=0;
-            else if(Integer.signum(newQ)==Integer.signum(oldQ))newAvg=oldAvg;
-            else newAvg=price;
-        }
-
+        // Each order replaces the existing position for this symbol.
         cash += buy ? -orderValue : orderValue;
-        SharedPreferences.Editor e=sp.edit();
-        e.putInt(k(symbol,"qty"),newQ);
-        putD(e,k(symbol,"avg"),newAvg);
-        putD(e,k(symbol,"real"),real);
+
+        SharedPreferences.Editor e = sp.edit();
+        e.putInt(k(symbol,"qty"), newQty);
+        putD(e,k(symbol,"avg"),price);
+        putD(e,k(symbol,"real"),0.0);
         putD(e,"cash",cash);
-        if(newQ==0){e.remove(k(symbol,"sl"));e.remove(k(symbol,"target"));}
+        e.remove(k(symbol,"sl"));
+        e.remove(k(symbol,"target"));
         e.apply();
+
         return null;
     }
 
