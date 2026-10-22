@@ -15,6 +15,8 @@ public class MainActivity extends Activity {
     Button lockBtn;
     String interval="1", selectedTf="1m", currentSid="", currentResolvedSymbol="", currentExchangeSegment="NSE_EQ", currentInstrumentType="EQUITY";
     boolean suppressSymbolSuggestions=false;
+    // Latest successful live LTP for order-price validation.
+    double lastLtpPrice=Double.NaN;
     int symbolRequestVersion=0; final android.os.Handler symbolHandler=new android.os.Handler(android.os.Looper.getMainLooper()); Runnable pendingSuggest; java.util.List<InstrumentResolver.Instrument> liveSuggestions=new java.util.ArrayList<>();
     int selectedMinutes=1;
     List<Candle> base1m=new ArrayList<>();
@@ -53,7 +55,7 @@ public class MainActivity extends Activity {
                 String now=cs.toString().trim().toUpperCase(Locale.US);
                 if(pendingSuggest!=null)symbolHandler.removeCallbacks(pendingSuggest);
                 if(suppressSymbolSuggestions){symbol.dismissDropDown();return;}
-                if(!now.equals(currentResolvedSymbol)){currentSid="";resolved.setText("Symbol → Security ID auto");price.setText("LTP: --");chart.setLivePrice(Double.NaN);}
+                if(!now.equals(currentResolvedSymbol)){currentSid="";lastLtpPrice=Double.NaN;resolved.setText("Symbol → Security ID auto");price.setText("LTP: --");chart.setLivePrice(Double.NaN);}
                 // Do not reopen the search dropdown after a symbol has already been selected.
                 if(now.isEmpty() || now.equals(currentResolvedSymbol)){symbol.dismissDropDown();return;}
                 final int req=++symbolRequestVersion;
@@ -283,7 +285,7 @@ public class MainActivity extends Activity {
         String q=symbol.getText().toString().trim().toUpperCase(Locale.US);
         if(q.isEmpty()){Toast.makeText(this,"Type symbol/name first",Toast.LENGTH_SHORT).show();return;}
         final int request=++symbolRequestVersion;
-        currentSid=""; currentResolvedSymbol="";
+        currentSid=""; currentResolvedSymbol=""; lastLtpPrice=Double.NaN;
         pauseReplay(); base1m.clear(); currentData.clear(); chart.setData(currentData); chart.setLivePrice(Double.NaN); price.setText("LTP: --");refreshPaperOverlay();
         resolved.setText("Searching "+q+" …"); status.setText("Searching NIFTY/BANKNIFTY + local NSE symbol cache • "+q+" …");
         new Thread(()->{
@@ -308,6 +310,7 @@ public class MainActivity extends Activity {
         symbol.dismissDropDown();
         suppressSymbolSuggestions=false;
         resolved.setText(x.symbol+" • "+x.exchangeSegment+" • "+x.instrumentType+" • Security ID "+x.securityId);
+        lastLtpPrice=Double.NaN;
         pauseReplay(); base1m.clear(); currentData.clear(); chart.setData(currentData); chart.setLivePrice(Double.NaN); price.setText(x.symbol+"  LTP --");refreshPaperOverlay();
         status.setText("Selected "+x.symbol+" • loading price/history…");
         loadLtp(); loadDhanMax();
@@ -325,7 +328,7 @@ public class MainActivity extends Activity {
         if(!validate(true))return;
         final String tok=token.getText().toString().trim(), cid=clientId.getText().toString().trim();
         price.setText("LTP: loading…");
-        withResolvedSid((sid,seg,type)->{try{double p=DhanRepository.ltp(tok,cid,sid,seg);runOnUiThread(()->{price.setText(symbol.getText()+"  LTP ₹"+fmt(p));chart.setLivePrice(p);PaperTradingManager.RiskEvent ev=paper.checkPrice(paperSymbol(),p);refreshPaperOverlay(p);if(ev!=null)status.setText("PAPER "+ev.type+" HIT • "+paperSymbol()+" exit ₹"+fmt(ev.exitPrice)+" • Qty "+ev.closedQty+" • Realized ₹"+fmt(ev.realizedAfter));else status.setText("Live price loaded • Paper P&L updated");});}catch(Exception e){runOnUiThread(()->{price.setText("LTP: ERROR");status.setText("LTP error: "+errorText(e));});}});
+        withResolvedSid((sid,seg,type)->{try{double p=DhanRepository.ltp(tok,cid,sid,seg);runOnUiThread(()->{lastLtpPrice=p;price.setText(symbol.getText()+"  LTP ₹"+fmt(p));chart.setLivePrice(p);PaperTradingManager.RiskEvent ev=paper.checkPrice(paperSymbol(),p);refreshPaperOverlay(p);if(ev!=null)status.setText("PAPER "+ev.type+" HIT • "+paperSymbol()+" exit ₹"+fmt(ev.exitPrice)+" • Qty "+ev.closedQty+" • Realized ₹"+fmt(ev.realizedAfter));else status.setText("Live price loaded • Paper P&L updated");});}catch(Exception e){runOnUiThread(()->{price.setText("LTP: ERROR");status.setText("LTP error: "+errorText(e));});}});
     }
 
     void showGoToDialog(){
@@ -492,7 +495,9 @@ public class MainActivity extends Activity {
     }
     void show(List<Candle>d,String msg){pauseReplay();currentData=new ArrayList<>(d);chart.setData(d);refreshPaperOverlay();int bull=0,bear=0;for(Candle c:d){if(c.signal==Candle.Signal.BULLISH)bull++;if(c.signal==Candle.Signal.BEARISH)bear++;}status.setText(msg+" • candles "+d.size()+" • Bull ▲ "+bull+" • Bear ▼ "+bear);}
     double lastTradePrice(){
+        // Replay uses its candle close; normal trading prefers the latest live LTP.
         if(chart!=null && chart.isReplayMode()) return chart.executionPrice();
+        if(lastLtpPrice>0 && !Double.isNaN(lastLtpPrice) && !Double.isInfinite(lastLtpPrice)) return lastLtpPrice;
         if(currentData!=null&&!currentData.isEmpty())return currentData.get(currentData.size()-1).close;
         return 0;
     }
@@ -599,8 +604,14 @@ public class MainActivity extends Activity {
         if(ps.isEmpty()){Toast.makeText(this,"Search a symbol first",Toast.LENGTH_SHORT).show();return;}
         final int q=paper.qty(ps);
         if(q==0){Toast.makeText(this,"Open a virtual position first, then attach SL/Target",Toast.LENGTH_LONG).show();return;}
-        final double markValue=lastTradePrice();
-        final double mark=markValue>0?markValue:paper.avg(ps);
+        final boolean replayMode = chart != null && chart.isReplayMode();
+        final double markValue = lastTradePrice();
+        // In live mode, do not validate risk orders against a stale candle close.
+        if (!replayMode && (lastLtpPrice <= 0 || Double.isNaN(lastLtpPrice) || Double.isInfinite(lastLtpPrice))) {
+            Toast.makeText(this, "GET PRICE दबाकर current live LTP लोड करें, फिर SL / Target सेट करें", Toast.LENGTH_LONG).show();
+            return;
+        }
+        final double mark = markValue > 0 ? markValue : (replayMode ? paper.avg(ps) : 0);
         LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(20),dp(8),dp(20),0);
         TextView info=label(ps+" • "+(q>0?"LONG ":"SHORT ")+Math.abs(q)+" units\nAverage ₹"+fmt(paper.avg(ps))+" • Current ₹"+fmt(mark)+"\nAttach virtual exit orders independently of chart lines.",14);
         EditText sl=new EditText(this);sl.setHint("Stop-loss trigger price (optional)");sl.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
@@ -614,7 +625,12 @@ public class MainActivity extends Activity {
         dlg.setOnShowListener(v->{
             dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(w->{
                 try{
-                    double stop=parseOptionalPrice(sl),tp=parseOptionalPrice(target);double ref=mark>0?mark:paper.avg(ps);
+                    double stop=parseOptionalPrice(sl),tp=parseOptionalPrice(target);
+                    double ref = mark;
+                    if (ref <= 0 || Double.isNaN(ref) || Double.isInfinite(ref)) {
+                        Toast.makeText(this, "Current price unavailable. Refresh price and try again.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
                     if(q>0){
                         if(stop>0&&stop>=ref){Toast.makeText(this,"LONG stop-loss must be below current price",Toast.LENGTH_LONG).show();return;}
                         if(tp>0&&tp<=ref){Toast.makeText(this,"LONG target must be above current price",Toast.LENGTH_LONG).show();return;}
