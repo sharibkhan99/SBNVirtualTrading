@@ -89,14 +89,18 @@ public class TradingChartView extends View {
     private void drawTrades(Canvas c,float priceH,double min,double max,Window w){if(trades.isEmpty())return;p.setTypeface(Typeface.DEFAULT_BOLD);p.setTextSize(dp(9));p.setTextAlign(Paint.Align.CENTER);for(Trade t:trades){if(t.entryIndex>=w.start&&t.entryIndex<w.end){float x=(t.entryIndex-w.start+.5f)*w.step,yy=y(t.entryPrice,min,max,priceH);p.setColor(t.side==Trade.Side.LONG?up:down);c.drawCircle(x,yy,dp(7),p);p.setColor(Color.WHITE);c.drawText(t.side==Trade.Side.LONG?"L":"S",x,yy+dp(3),p);}if(t.exitIndex>=w.start&&t.exitIndex<w.end){float x=(t.exitIndex-w.start+.5f)*w.step,yy=y(t.exitPrice,min,max,priceH);p.setColor(Color.rgb(255,193,7));c.drawCircle(x,yy,dp(6),p);p.setColor(Color.BLACK);c.drawText("X",x,yy+dp(3),p);}}p.setTypeface(Typeface.DEFAULT);}
     private void drawPrice(Canvas c,float plotW,float scaleW,float priceH,double min,double max,Window w){
         double v = data.get(w.end-1).close;
-        boolean historicalSelected = selectedIndex >= w.start && selectedIndex < w.end;
         if (replayMode) {
             Candle replayCandle = getReplayCandle();
-            if (replayCandle != null) v = replayCandle.close;
-        } else if (historicalSelected) {
-            v = data.get(selectedIndex).close;
-        } else if (!Double.isNaN(livePrice) && !Double.isInfinite(livePrice)) {
-            v = livePrice;
+            if (replayCandle != null) {
+                v = replayCandle.close;
+            }
+        } else {
+            Candle selectedCandle = getCandle(selectedIndex);
+            if (selectedCandle != null) {
+                v = selectedCandle.close;
+            } else if (!Double.isNaN(livePrice) && !Double.isInfinite(livePrice)) {
+                v = livePrice;
+            }
         }
         float yy=y(v,min,max,priceH);
         p.setColor(accent);

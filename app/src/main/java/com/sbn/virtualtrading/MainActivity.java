@@ -338,9 +338,18 @@ public class MainActivity extends Activity {
         withResolvedSid((sid,seg,type)->{try{double p=DhanRepository.ltp(tok,cid,sid,seg);runOnUiThread(()->{
             lastLtpPrice=p;
             boolean replay=chart!=null&&chart.isReplayMode();
-            price.setText(replay
-                ? "LIVE LTP ₹"+fmt(p)+" • REPLAY ₹"+fmt(chart.executionPrice())
-                : symbol.getText()+"  LTP ₹"+fmt(p));
+            int selectedIndex = chart.getSelectedIndex();
+            Candle selectedCandle = chart.getCandle(selectedIndex);
+
+            if (replay) {
+                price.setText("LIVE LTP ₹"+fmt(p)
+                    +" • REPLAY ₹"+fmt(chart.executionPrice()));
+            } else if (selectedCandle != null) {
+                price.setText("HIST CLOSE ₹"+fmt(selectedCandle.close)
+                    +" • LIVE LTP ₹"+fmt(p));
+            } else {
+                price.setText(symbol.getText()+"  LTP ₹"+fmt(p));
+            }
             chart.setLivePrice(p);
             PaperTradingManager.RiskEvent ev=replay?null:paper.checkPrice(paperSymbol(),p);
             refreshPaperOverlay(replay?chart.executionPrice():p);
