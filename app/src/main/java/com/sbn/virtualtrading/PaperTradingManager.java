@@ -68,6 +68,16 @@ public final class PaperTradingManager {
     public void addFunds(double amount){if(amount>0)setBalance(balance()+amount);}
     public void setBalance(double amount){sp.edit().putLong("cash",Double.doubleToLongBits(Math.max(0,amount))).apply();}
 
+    /** Edit average entry of an open position without changing cash or P&L. */
+    public String setAverageEntry(String symbol, double newAverage){
+        int q = qty(symbol);
+        if(q == 0) return "No open position to edit";
+        if(newAverage <= 0 || Double.isNaN(newAverage) || Double.isInfinite(newAverage))
+            return "Entry price must be a valid positive number";
+        sp.edit().putLong(k(symbol,"avg"), Double.doubleToLongBits(newAverage)).apply();
+        return null;
+    }
+
     public void clearPositionAndPnl(String symbol){
         sp.edit().remove(k(symbol,"qty")).remove(k(symbol,"avg")).remove(k(symbol,"real"))
                 .remove(k(symbol,"sl")).remove(k(symbol,"target")).apply();

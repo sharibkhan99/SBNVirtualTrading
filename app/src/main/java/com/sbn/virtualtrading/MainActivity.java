@@ -578,34 +578,297 @@ public class MainActivity extends Activity {
 
     void showPaperTradeDialog(){
         final String ps=paperSymbol();
-        if(ps.isEmpty()){Toast.makeText(this,"Search a symbol first",Toast.LENGTH_SHORT).show();return;}
-        final double mark=lastTradePrice();
-        if(mark<=0){Toast.makeText(this,"Load candles/price first",Toast.LENGTH_SHORT).show();return;}
-        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(20),dp(8),dp(20),0);
+        if(ps.isEmpty()){
+            Toast.makeText(this,"Search a symbol first",Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if(currentData==null || currentData.isEmpty()){
+            Toast.makeText(this,"Load historical candles first",Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        final double liveMark=lastTradePrice();
+        final double mark=(liveMark>0 && Double.isFinite(liveMark))
+                ?liveMark:currentData.get(currentData.size()-1).close;
+
+        LinearLayout box=new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20),dp(8),dp(20),0);
+
         TextView account=label("",14);
-        EditText qty=new EditText(this);qty.setHint("Quantity");qty.setInputType(InputType.TYPE_CLASS_NUMBER);qty.setText("1");
-        EditText sl=new EditText(this);sl.setHint("Stop Loss price (optional)");sl.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        EditText target=new EditText(this);target.setHint("Target price (optional)");target.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        EditText qty=new EditText(this);
+        qty.setHint("Quantity");
+        qty.setInputType(InputType.TYPE_CLASS_NUMBER);
+        qty.setText("1");
+
+        EditText sl=new EditText(this);
+        sl.setHint("Stop Loss price (optional)");
+        sl.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
+
+        EditText target=new EditText(this);
+        target.setHint("Target price (optional)");
+        target.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
+
         if(paper.stopLoss(ps)>0)sl.setText(fmt(paper.stopLoss(ps)));
         if(paper.target(ps)>0)target.setText(fmt(paper.target(ps)));
-        int pos=paper.qty(ps);double unreal=paper.unrealized(ps,mark);
-        account.setText(ps+" • Market ₹"+fmt(mark)+"\nAvailable Cash ₹"+fmt(paper.balance())+"\nPosition "+pos+" @ ₹"+fmt(paper.avg(ps))+"\nSL "+(paper.stopLoss(ps)>0?"₹"+fmt(paper.stopLoss(ps)):"OFF")+" • Target "+(paper.target(ps)>0?"₹"+fmt(paper.target(ps)):"OFF")+"\nRealized ₹"+fmt(paper.realized(ps))+" • Unrealized ₹"+fmt(unreal)+"\nEquity ₹"+fmt(paper.equity(ps,mark))+"\nReplay: candle High/Low checks SL/Target • same candle = SL first");
-        box.addView(account);box.addView(qty);box.addView(sl);box.addView(target);
-        AlertDialog dlg=new AlertDialog.Builder(this).setTitle("PAPER TRADE • "+ps).setView(box).setPositiveButton("BUY",null).setNegativeButton("SELL",null).setNeutralButton("CLEAR POSITION",null).create();
+
+        CheckBox historical=new CheckBox(this);
+        historical.setText("Use historical Date/Time candle price");
+        historical.setTextColor(Color.WHITE);
+
+        final TimeZone ist=TimeZone.getTimeZone("Asia/Kolkata");
+        final Calendar chosen=Calendar.getInstance(ist);
+        chosen.setTimeInMillis(currentData.get(currentData.size()-1).time);
+
+        final Button dateBtn=new Button(this);
+        final Button timeBtn=new Button(this);
+        String[] priceFields={"Open","High","Low","Close"};
+        Spinner field=new Spinner(this);
+        field.setAdapter(new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_dropdown_item,priceFields));
+
+        SimpleDateFormat dateFmt=new SimpleDateFormat("dd MMM yyyy",Locale.US);
+        dateFmt.setTimeZone(ist);
+        SimpleDateFormat timeFmt=new SimpleDateFormat("HH:mm",Locale.US);
+        timeFmt.setTimeZone(ist);
+
+        Runnable updateDate=()->dateBtn.setText("DATE • "+dateFmt.format(chosen.getTime()));
+        Runnable updateTime=()->timeBtn.setText("TIME • "+timeFmt.format(chosen.getTime())+" IST");
+        updateDate.run();
+        updateTime.run();
+
+        dateBtn.setOnClickListener(v->{
+            DatePickerDialog dp=new DatePickerDialog(this,(view,y,m,d)->{
+                chosen.set(Calendar.YEAR,y);
+                chosen.set(Calendar.MONTH,m);
+                chosen.set(Calendar.DAY_OF_MONTH,d);
+                updateDate.run();
+            },chosen.get(Calendar.YEAR),chosen.get(Calendar.MONTH),
+                    chosen.get(Calendar.DAY_OF_MONTH));
+            dp.show();
+        });
+        timeBtn.setOnClickListener(v->{
+            TimePickerDialog tp=new TimePickerDialog(this,(view,h,m)->{
+                chosen.set(Calendar.HOUR_OF_DAY,h);
+                chosen.set(Calendar.MINUTE,m);
+                chosen.set(Calendar.SECOND,0);
+                chosen.set(Calendar.MILLISECOND,0);
+                updateTime.run();
+            },chosen.get(Calendar.HOUR_OF_DAY),chosen.get(Calendar.MINUTE),true);
+            tp.show();
+        });
+
+        Button editEntry=new Button(this);
+        editEntry.setText("EDIT ENTRY PRICE");
+        editEntry.setOnClickListener(v->showEditEntryDialog(ps));
+
+        Runnable updateAccount=()->{
+            int pos=paper.qty(ps);
+            double u=mark>0?paper.unrealized(ps,mark):0;
+            account.setText(ps+" • Price ₹"+fmt(mark)
+                    +"\nAvailable Cash ₹"+fmt(paper.balance())
+                    +"\nPosition "+pos+" @ ₹"+fmt(paper.avg(ps))
+                    +"\nSL "+riskText(paper.stopLoss(ps))
+                    +" • Target "+riskText(paper.target(ps))
+                    +"\nRealized ₹"+fmt(paper.realized(ps))
+                    +" • Unrealized ₹"+fmt(u)
+                    +(mark>0?"\nEquity ₹"+fmt(paper.equity(ps,mark)):"")
+                    +"\nHistorical price applies to the selected candle only.");
+        };
+        updateAccount.run();
+
+        box.addView(account);
+        box.addView(editEntry);
+        box.addView(qty);
+        box.addView(sl);
+        box.addView(target);
+        box.addView(historical);
+        box.addView(dateBtn);
+        box.addView(timeBtn);
+        box.addView(field);
+
+        historical.setOnCheckedChangeListener((button,checked)->{
+            dateBtn.setEnabled(checked);
+            timeBtn.setEnabled(checked && !selectedTf.equals("1D"));
+            field.setEnabled(checked);
+        });
+        dateBtn.setEnabled(false);
+        timeBtn.setEnabled(false);
+        field.setEnabled(false);
+
+        AlertDialog dlg=new AlertDialog.Builder(this)
+                .setTitle("PAPER TRADE • "+ps)
+                .setView(box)
+                .setPositiveButton("BUY",null)
+                .setNegativeButton("SELL",null)
+                .setNeutralButton("CLEAR POSITION",null)
+                .create();
+
         dlg.setOnShowListener(x->{
-            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->paperTrade(ps,true,qty,sl,target,dlg));
-            dlg.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v->paperTrade(ps,false,qty,sl,target,dlg));
-            dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{paper.clearPositionAndPnl(ps);refreshPaperOverlay();dlg.dismiss();status.setText(ps+" paper position/P&L cleared • Cash ₹"+fmt(paper.balance()));});
-        });dlg.show();
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+                double px;
+                String source="LIVE / REPLAY";
+                if(historical.isChecked()){
+                    px=resolveHistoricalTradePrice(chosen.getTimeInMillis(),
+                            field.getSelectedItemPosition());
+                    source="HISTORICAL "+priceFields[field.getSelectedItemPosition()]
+                            +" • "+dateFmt.format(chosen.getTime())
+                            +(selectedTf.equals("1D")?"":" "+timeFmt.format(chosen.getTime())+" IST");
+                }else{
+                    px=lastTradePrice();
+                }
+                if(px<=0 || !Double.isFinite(px)){
+                    Toast.makeText(this,
+                            historical.isChecked()
+                                    ?"No matching candle at the selected date/time"
+                                    :"Load candles/price first",
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+                paperTrade(ps,true,qty,sl,target,dlg,px,source);
+            });
+            dlg.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v->{
+                double px;
+                String source="LIVE / REPLAY";
+                if(historical.isChecked()){
+                    px=resolveHistoricalTradePrice(chosen.getTimeInMillis(),
+                            field.getSelectedItemPosition());
+                    source="HISTORICAL "+priceFields[field.getSelectedItemPosition()]
+                            +" • "+dateFmt.format(chosen.getTime())
+                            +(selectedTf.equals("1D")?"":" "+timeFmt.format(chosen.getTime())+" IST");
+                }else{
+                    px=lastTradePrice();
+                }
+                if(px<=0 || !Double.isFinite(px)){
+                    Toast.makeText(this,
+                            historical.isChecked()
+                                    ?"No matching candle at the selected date/time"
+                                    :"Load candles/price first",
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+                paperTrade(ps,false,qty,sl,target,dlg,px,source);
+            });
+            dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{
+                paper.clearPositionAndPnl(ps);
+                refreshPaperOverlay();
+                dlg.dismiss();
+                status.setText(ps+" paper position/P&L cleared • Cash ₹"+fmt(paper.balance()));
+            });
+        });
+        dlg.show();
     }
+
+    double resolveHistoricalTradePrice(long selectedTime,int fieldIndex){
+        if(currentData==null || currentData.isEmpty())return Double.NaN;
+
+        TimeZone ist=TimeZone.getTimeZone("Asia/Kolkata");
+        Calendar selected=Calendar.getInstance(ist);
+        selected.setTimeInMillis(selectedTime);
+        Candle best=null;
+        long bestDiff=Long.MAX_VALUE;
+
+        for(Candle c:currentData){
+            Calendar ct=Calendar.getInstance(ist);
+            ct.setTimeInMillis(c.time);
+            if(ct.get(Calendar.YEAR)!=selected.get(Calendar.YEAR)
+                    || ct.get(Calendar.DAY_OF_YEAR)!=selected.get(Calendar.DAY_OF_YEAR))
+                continue;
+
+            long diff=Math.abs(c.time-selectedTime);
+            if(diff<bestDiff){
+                best=c;
+                bestDiff=diff;
+            }
+        }
+
+        if(best==null)return Double.NaN;
+
+        if(!selectedTf.equals("1D")){
+            long intervalMs=Math.max(1,selectedMinutes)*60_000L;
+            if(bestDiff>intervalMs/2+1_000L)return Double.NaN;
+        }
+
+        double px;
+        switch(fieldIndex){
+            case 0:px=best.open;break;
+            case 1:px=best.high;break;
+            case 2:px=best.low;break;
+            case 3:px=best.close;break;
+            default:return Double.NaN;
+        }
+        return px>0 && Double.isFinite(px)?px:Double.NaN;
+    }
+
+    void showEditEntryDialog(String ps){
+        int q=paper.qty(ps);
+        if(q==0){
+            Toast.makeText(this,"No open position to edit",Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        LinearLayout box=new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20),dp(8),dp(20),0);
+
+        TextView info=label("Position: "+(q>0?"LONG ":"SHORT ")
+                +Math.abs(q)+" shares\nCurrent average entry: ₹"+fmt(paper.avg(ps)),14);
+        EditText entry=new EditText(this);
+        entry.setHint("New average entry price");
+        entry.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        entry.setText(fmt(paper.avg(ps)));
+        box.addView(info);
+        box.addView(entry);
+
+        AlertDialog dlg=new AlertDialog.Builder(this)
+                .setTitle("EDIT ENTRY • "+ps)
+                .setView(box)
+                .setPositiveButton("SAVE",null)
+                .setNegativeButton("CANCEL",null)
+                .create();
+
+        dlg.setOnShowListener(x->dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            try{
+                double newAvg=Double.parseDouble(entry.getText().toString().trim());
+                String err=paper.setAverageEntry(ps,newAvg);
+                if(err!=null){
+                    Toast.makeText(this,err,Toast.LENGTH_LONG).show();
+                    return;
+                }
+
+                double sl=paper.stopLoss(ps);
+                double tgt=paper.target(ps);
+                boolean removed=false;
+                if(q>0){
+                    if(sl>0 && sl>=newAvg){sl=0;removed=true;}
+                    if(tgt>0 && tgt<=newAvg){tgt=0;removed=true;}
+                }else{
+                    if(sl>0 && sl<=newAvg){sl=0;removed=true;}
+                    if(tgt>0 && tgt>=newAvg){tgt=0;removed=true;}
+                }
+                paper.setRisk(ps,sl,tgt);
+                refreshPaperOverlay();
+                dlg.dismiss();
+
+                String msg=ps+" average entry corrected to ₹"+fmt(newAvg)
+                        +" • Quantity, cash and realized P&L unchanged";
+                if(removed)msg+=" • Invalid SL/Target cleared";
+                status.setText(msg);
+                Toast.makeText(this,msg,Toast.LENGTH_LONG).show();
+            }catch(Exception e){
+                Toast.makeText(this,"Enter a valid positive entry price",Toast.LENGTH_LONG).show();
+            }
+        }));
+        dlg.show();
+    }
+
     void paperTrade(String ps, boolean buy, EditText q, EditText slField,
-                    EditText targetField, AlertDialog dlg) {
+                    EditText targetField, AlertDialog dlg, double px, String priceSource) {
         try {
             int orderQty = Math.max(1, Integer.parseInt(q.getText().toString().trim()));
-            double px = lastTradePrice();
 
             if (px <= 0 || Double.isNaN(px) || Double.isInfinite(px)) {
-                Toast.makeText(this, "Load candles/price first", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Invalid execution price", Toast.LENGTH_SHORT).show();
                 return;
             }
 
@@ -617,18 +880,16 @@ public class MainActivity extends Activity {
             int signedOrder = buy ? orderQty : -orderQty;
             int projected = oldQty + signedOrder;
 
-            // Calculate the resulting position's expected average entry.
             double entry = 0;
             if (projected != 0) {
                 if (oldQty == 0 || Integer.signum(oldQty) == Integer.signum(signedOrder)) {
                     entry = oldQty == 0 ? px
-                            : ((Math.abs((double) oldQty) * oldAvg)
-                            + (orderQty * px))
+                            : ((Math.abs((double) oldQty) * oldAvg) + (orderQty * px))
                             / (Math.abs((double) oldQty) + orderQty);
                 } else if (Integer.signum(projected) == Integer.signum(oldQty)) {
-                    entry = oldAvg; // Partial close; remaining position keeps its entry.
+                    entry = oldAvg;
                 } else {
-                    entry = px; // Position reversed; new side enters at this execution price.
+                    entry = px;
                 }
             }
 
@@ -663,15 +924,13 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            if (paper.qty(ps) != 0) {
-                paper.setRisk(ps, sl, tgt);
-            } else {
-                paper.clearRisk(ps);
-            }
+            if (paper.qty(ps) != 0) paper.setRisk(ps, sl, tgt);
+            else paper.clearRisk(ps);
 
             refreshPaperOverlay(px);
             status.setText("PAPER " + (buy ? "BUY" : "SELL") + " " + ps
                     + " • " + orderQty + " @ ₹" + fmt(px)
+                    + " • " + priceSource
                     + " • Pos " + paper.qty(ps) + " @ ₹" + fmt(paper.avg(ps))
                     + " • SL " + riskText(paper.stopLoss(ps))
                     + " • Target " + riskText(paper.target(ps))
@@ -682,6 +941,7 @@ public class MainActivity extends Activity {
                     Toast.LENGTH_SHORT).show();
         }
     }
+
     double parseOptionalPrice(EditText e){
         String x=e.getText().toString().trim(); if(x.isEmpty())return 0;
         double v=Double.parseDouble(x); return v>0?v:0;
