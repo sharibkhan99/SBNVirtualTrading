@@ -598,27 +598,89 @@ public class MainActivity extends Activity {
             dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{paper.clearPositionAndPnl(ps);refreshPaperOverlay();dlg.dismiss();status.setText(ps+" paper position/P&L cleared • Cash ₹"+fmt(paper.balance()));});
         });dlg.show();
     }
-    void paperTrade(String ps,boolean buy,EditText q,EditText slField,EditText targetField,AlertDialog dlg){
-        try{
-            int orderQty=Math.max(1,Integer.parseInt(q.getText().toString().trim()));
-            double px=lastTradePrice();
-            if(px<=0){Toast.makeText(this,"Load candles/price first",Toast.LENGTH_SHORT).show();return;}
-            double sl=parseOptionalPrice(slField), tgt=parseOptionalPrice(targetField);
-            int projected=paper.qty(ps)+(buy?orderQty:-orderQty);
-            if(projected>0){
-                if(sl>0 && sl>=px){Toast.makeText(this,"LONG Stop Loss must be below entry price",Toast.LENGTH_LONG).show();return;}
-                if(tgt>0 && tgt<=px){Toast.makeText(this,"LONG Target must be above entry price",Toast.LENGTH_LONG).show();return;}
-            }else if(projected<0){
-                if(sl>0 && sl<=px){Toast.makeText(this,"SHORT Stop Loss must be above entry price",Toast.LENGTH_LONG).show();return;}
-                if(tgt>0 && tgt>=px){Toast.makeText(this,"SHORT Target must be below entry price",Toast.LENGTH_LONG).show();return;}
+    void paperTrade(String ps, boolean buy, EditText q, EditText slField,
+                    EditText targetField, AlertDialog dlg) {
+        try {
+            int orderQty = Math.max(1, Integer.parseInt(q.getText().toString().trim()));
+            double px = lastTradePrice();
+
+            if (px <= 0 || Double.isNaN(px) || Double.isInfinite(px)) {
+                Toast.makeText(this, "Load candles/price first", Toast.LENGTH_SHORT).show();
+                return;
             }
-            String err=paper.trade(ps,buy,orderQty,px);
-            if(err!=null){Toast.makeText(this,err,Toast.LENGTH_LONG).show();status.setText("PAPER ORDER REJECTED • "+err);return;}
-            if(paper.qty(ps)!=0)paper.setRisk(ps,sl,tgt); else paper.clearRisk(ps);
+
+            double sl = parseOptionalPrice(slField);
+            double tgt = parseOptionalPrice(targetField);
+
+            int oldQty = paper.qty(ps);
+            double oldAvg = paper.avg(ps);
+            int signedOrder = buy ? orderQty : -orderQty;
+            int projected = oldQty + signedOrder;
+
+            // Calculate the resulting position's expected average entry.
+            double entry = 0;
+            if (projected != 0) {
+                if (oldQty == 0 || Integer.signum(oldQty) == Integer.signum(signedOrder)) {
+                    entry = oldQty == 0 ? px
+                            : ((Math.abs((double) oldQty) * oldAvg)
+                            + (orderQty * px))
+                            / (Math.abs((double) oldQty) + orderQty);
+                } else if (Integer.signum(projected) == Integer.signum(oldQty)) {
+                    entry = oldAvg; // Partial close; remaining position keeps its entry.
+                } else {
+                    entry = px; // Position reversed; new side enters at this execution price.
+                }
+            }
+
+            if (projected > 0) {
+                if (sl > 0 && sl >= entry) {
+                    Toast.makeText(this, "LONG SL must be below average entry ₹" + fmt(entry),
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+                if (tgt > 0 && tgt <= entry) {
+                    Toast.makeText(this, "LONG Target must be above average entry ₹" + fmt(entry),
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+            } else if (projected < 0) {
+                if (sl > 0 && sl <= entry) {
+                    Toast.makeText(this, "SHORT SL must be above average entry ₹" + fmt(entry),
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+                if (tgt > 0 && tgt >= entry) {
+                    Toast.makeText(this, "SHORT Target must be below average entry ₹" + fmt(entry),
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+            }
+
+            String err = paper.trade(ps, buy, orderQty, px);
+            if (err != null) {
+                Toast.makeText(this, err, Toast.LENGTH_LONG).show();
+                status.setText("PAPER ORDER REJECTED • " + err);
+                return;
+            }
+
+            if (paper.qty(ps) != 0) {
+                paper.setRisk(ps, sl, tgt);
+            } else {
+                paper.clearRisk(ps);
+            }
+
             refreshPaperOverlay(px);
-            status.setText("PAPER "+(buy?"BUY":"SELL")+" "+ps+" • "+orderQty+" @ ₹"+fmt(px)+" • Pos "+paper.qty(ps)+" @ ₹"+fmt(paper.avg(ps))+" • SL "+riskText(paper.stopLoss(ps))+" • Target "+riskText(paper.target(ps))+" • Cash ₹"+fmt(paper.balance()));
+            status.setText("PAPER " + (buy ? "BUY" : "SELL") + " " + ps
+                    + " • " + orderQty + " @ ₹" + fmt(px)
+                    + " • Pos " + paper.qty(ps) + " @ ₹" + fmt(paper.avg(ps))
+                    + " • SL " + riskText(paper.stopLoss(ps))
+                    + " • Target " + riskText(paper.target(ps))
+                    + " • Cash ₹" + fmt(paper.balance()));
             dlg.dismiss();
-        }catch(Exception e){Toast.makeText(this,"Check Quantity / Stop Loss / Target values",Toast.LENGTH_SHORT).show();}
+        } catch (Exception e) {
+            Toast.makeText(this, "Check Quantity / Stop Loss / Target values",
+                    Toast.LENGTH_SHORT).show();
+        }
     }
     double parseOptionalPrice(EditText e){
         String x=e.getText().toString().trim(); if(x.isEmpty())return 0;
@@ -659,12 +721,45 @@ public class MainActivity extends Activity {
                         Toast.makeText(this, "Current price unavailable. Refresh price and try again.", Toast.LENGTH_LONG).show();
                         return;
                     }
-                    if(q>0){
-                        if(stop>0&&stop>=ref){Toast.makeText(this,"LONG stop-loss must be below current price",Toast.LENGTH_LONG).show();return;}
-                        if(tp>0&&tp<=ref){Toast.makeText(this,"LONG target must be above current price",Toast.LENGTH_LONG).show();return;}
-                    }else{
-                        if(stop>0&&stop<=ref){Toast.makeText(this,"SHORT stop-loss must be above current price",Toast.LENGTH_LONG).show();return;}
-                        if(tp>0&&tp>=ref){Toast.makeText(this,"SHORT target must be below current price",Toast.LENGTH_LONG).show();return;}
+                    double entry = paper.avg(ps);
+                    if (entry <= 0 || Double.isNaN(entry) || Double.isInfinite(entry)) {
+                        Toast.makeText(this, "Invalid position entry price", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    if (q > 0) {
+                        if (stop > 0 && stop >= entry) {
+                            Toast.makeText(this, "LONG SL must be below average entry ₹" + fmt(entry), Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        if (tp > 0 && tp <= entry) {
+                            Toast.makeText(this, "LONG Target must be above average entry ₹" + fmt(entry), Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        if (stop > 0 && ref <= stop) {
+                            Toast.makeText(this, "SL already reached at current price", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        if (tp > 0 && ref >= tp) {
+                            Toast.makeText(this, "Target already reached at current price", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                    } else {
+                        if (stop > 0 && stop <= entry) {
+                            Toast.makeText(this, "SHORT SL must be above average entry ₹" + fmt(entry), Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        if (tp > 0 && tp >= entry) {
+                            Toast.makeText(this, "SHORT Target must be below average entry ₹" + fmt(entry), Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        if (stop > 0 && ref >= stop) {
+                            Toast.makeText(this, "SL already reached at current price", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        if (tp > 0 && ref <= tp) {
+                            Toast.makeText(this, "Target already reached at current price", Toast.LENGTH_LONG).show();
+                            return;
+                        }
                     }
                     paper.setRisk(ps,stop,tp);refreshPaperOverlay();
                     status.setText(ps+" • Virtual SL "+riskText(stop)+" • Target "+riskText(tp)+" • Saved independently of chart");
