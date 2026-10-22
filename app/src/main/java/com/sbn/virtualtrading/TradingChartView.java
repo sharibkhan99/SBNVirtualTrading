@@ -48,6 +48,11 @@ public class TradingChartView extends View {
     public void setTrades(List<Trade>t){trades.clear();if(t!=null)trades.addAll(t);invalidate();}
     public Candle getCandle(int i){return i>=0&&i<data.size()?data.get(i):null;}
     public int getSelectedIndex(){return selectedIndex;}
+    public double selectedCandlePrice(){
+        Candle c = getCandle(selectedIndex);
+        return c != null ? c.close : 0;
+    }
+
     public boolean isReplayMode(){return replayMode;}
     public int getReplayIndex(){return replayIndex;}
     public Candle getReplayCandle(){return replayMode?getCandle(replayIndex):null;}
@@ -82,7 +87,33 @@ public class TradingChartView extends View {
     private void gridScale(Canvas c,float plotW,float scaleW,float priceH,double min,double max){p.setStrokeWidth(dp(.6f));p.setTextSize(dp(10));p.setTextAlign(Paint.Align.LEFT);for(int i=0;i<7;i++){float yy=dp(8)+(priceH-dp(16))*i/6f;double v=max-(max-min)*i/6d;p.setColor(grid);c.drawLine(0,yy,plotW,yy,p);p.setColor(text);c.drawText(fmt(v),plotW+dp(5),yy+dp(4),p);}for(int i=1;i<7;i++){float x=plotW*i/7f;p.setColor(grid);c.drawLine(x,0,x,priceH,p);}}
     private float y(double v,double min,double max,float h){return(float)(dp(8)+(max-v)/(max-min)*(h-dp(16)));}
     private void drawTrades(Canvas c,float priceH,double min,double max,Window w){if(trades.isEmpty())return;p.setTypeface(Typeface.DEFAULT_BOLD);p.setTextSize(dp(9));p.setTextAlign(Paint.Align.CENTER);for(Trade t:trades){if(t.entryIndex>=w.start&&t.entryIndex<w.end){float x=(t.entryIndex-w.start+.5f)*w.step,yy=y(t.entryPrice,min,max,priceH);p.setColor(t.side==Trade.Side.LONG?up:down);c.drawCircle(x,yy,dp(7),p);p.setColor(Color.WHITE);c.drawText(t.side==Trade.Side.LONG?"L":"S",x,yy+dp(3),p);}if(t.exitIndex>=w.start&&t.exitIndex<w.end){float x=(t.exitIndex-w.start+.5f)*w.step,yy=y(t.exitPrice,min,max,priceH);p.setColor(Color.rgb(255,193,7));c.drawCircle(x,yy,dp(6),p);p.setColor(Color.BLACK);c.drawText("X",x,yy+dp(3),p);}}p.setTypeface(Typeface.DEFAULT);}
-    private void drawPrice(Canvas c,float plotW,float scaleW,float priceH,double min,double max,Window w){double last=data.get(w.end-1).close;double v=last;if(!replayMode&&!Double.isNaN(livePrice)){double span=Math.max(0.01,max-min);if(livePrice>=min-span*0.03&&livePrice<=max+span*0.03)v=livePrice;}float yy=y(v,min,max,priceH);p.setColor(accent);p.setPathEffect(new DashPathEffect(new float[]{dp(5),dp(4)},0));c.drawLine(0,yy,plotW,yy,p);p.setPathEffect(null);p.setTextSize(dp(10));p.setTypeface(Typeface.DEFAULT_BOLD);p.getFontMetrics(fm);float bh=Math.max(dp(18),fm.bottom-fm.top+dp(5));p.setColor(accent);c.drawRect(plotW,yy-bh/2,plotW+scaleW,yy+bh/2,p);p.setColor(Color.WHITE);p.setTextAlign(Paint.Align.CENTER);c.drawText(fmt(v),plotW+scaleW/2,yy-(fm.ascent+fm.descent)/2,p);p.setTypeface(Typeface.DEFAULT);}
+    private void drawPrice(Canvas c,float plotW,float scaleW,float priceH,double min,double max,Window w){
+        double v = data.get(w.end-1).close;
+        boolean historicalSelected = selectedIndex >= w.start && selectedIndex < w.end;
+        if (replayMode) {
+            Candle replayCandle = getReplayCandle();
+            if (replayCandle != null) v = replayCandle.close;
+        } else if (historicalSelected) {
+            v = data.get(selectedIndex).close;
+        } else if (!Double.isNaN(livePrice) && !Double.isInfinite(livePrice)) {
+            v = livePrice;
+        }
+        float yy=y(v,min,max,priceH);
+        p.setColor(accent);
+        p.setPathEffect(new DashPathEffect(new float[]{dp(5),dp(4)},0));
+        c.drawLine(0,yy,plotW,yy,p);
+        p.setPathEffect(null);
+        p.setTextSize(dp(10));
+        p.setTypeface(Typeface.DEFAULT_BOLD);
+        p.getFontMetrics(fm);
+        float bh=Math.max(dp(18),fm.bottom-fm.top+dp(5));
+        p.setColor(accent);
+        c.drawRect(plotW,yy-bh/2,plotW+scaleW,yy+bh/2,p);
+        p.setColor(Color.WHITE);
+        p.setTextAlign(Paint.Align.CENTER);
+        c.drawText(fmt(v),plotW+scaleW/2,yy-(fm.ascent+fm.descent)/2,p);
+        p.setTypeface(Typeface.DEFAULT);
+    }
     private void drawTimeAxis(Canvas c,float plotW,float priceH,float axisH,Window w){p.setColor(text);p.setTextSize(dp(9));p.setTextAlign(Paint.Align.CENTER);int labels=Math.min(5,Math.max(2,(int)(plotW/dp(85))));SimpleDateFormat day=new SimpleDateFormat("dd MMM yyyy",Locale.US),intr=new SimpleDateFormat("dd MMM HH:mm",Locale.US);day.setTimeZone(IST);intr.setTimeZone(IST);boolean daily=w.end-w.start>1&&data.get(Math.min(w.end-1,w.start+1)).time-data.get(w.start).time>20L*60*60*1000;for(int k=0;k<labels;k++){int idx=w.start+Math.round((w.end-w.start-1)*k/(labels-1f));float x=(idx-w.start+.5f)*w.step;c.drawText((daily?day:intr).format(new Date(data.get(idx).time)),x,priceH+dp(17),p);}p.setTextAlign(Paint.Align.LEFT);p.setTextSize(dp(8));p.setColor(Color.rgb(130,136,146));c.drawText("IST • NSE 09:15–15:30",dp(4),priceH+axisH-dp(4),p);}
     private void drawCrosshair(Canvas c,float plotW,float scaleW,float priceH,double min,double max,Window w,float body){if(selectedIndex<w.start||selectedIndex>=w.end)return;Candle x=data.get(selectedIndex);float cx=(selectedIndex-w.start+.5f)*w.step,cy=y(x.close,min,max,priceH);p.setColor(Color.rgb(145,150,160));p.setPathEffect(new DashPathEffect(new float[]{dp(4),dp(3)},0));c.drawLine(cx,0,cx,priceH,p);c.drawLine(0,cy,plotW,cy,p);p.setPathEffect(null);
         SimpleDateFormat f=new SimpleDateFormat("dd MMM yyyy HH:mm:ss 'IST'",Locale.US);f.setTimeZone(IST);String dt=f.format(new Date(x.time));String o="O "+fmt(x.open)+"   H "+fmt(x.high)+"   L "+fmt(x.low)+"   C "+fmt(x.close);

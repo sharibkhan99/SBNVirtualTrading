@@ -611,13 +611,13 @@ public class MainActivity extends Activity {
         final int q=paper.qty(ps);
         if(q==0){Toast.makeText(this,"Open a virtual position first, then attach SL/Target",Toast.LENGTH_LONG).show();return;}
         final boolean replayMode = chart != null && chart.isReplayMode();
-        final double markValue = lastTradePrice();
-        // In live mode, do not validate risk orders against a stale candle close.
-        if (!replayMode && (lastLtpPrice <= 0 || Double.isNaN(lastLtpPrice) || Double.isInfinite(lastLtpPrice))) {
+        final double markValue = replayMode ? chart.executionPrice() : lastLtpPrice;
+        if (!replayMode && (markValue <= 0 || Double.isNaN(markValue) || Double.isInfinite(markValue))) {
             Toast.makeText(this, "GET PRICE दबाकर current live LTP लोड करें, फिर SL / Target सेट करें", Toast.LENGTH_LONG).show();
             return;
         }
-        final double mark = markValue > 0 ? markValue : (replayMode ? paper.avg(ps) : 0);
+        final double mark = markValue > 0 && !Double.isNaN(markValue) && !Double.isInfinite(markValue)
+                ? markValue : (replayMode ? paper.avg(ps) : 0);
         LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(20),dp(8),dp(20),0);
         TextView info=label(ps+" • "+(q>0?"LONG ":"SHORT ")+Math.abs(q)+" units\nAverage ₹"+fmt(paper.avg(ps))+" • Current ₹"+fmt(mark)+"\nAttach virtual exit orders independently of chart lines.",14);
         EditText sl=new EditText(this);sl.setHint("Stop-loss trigger price (optional)");sl.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
