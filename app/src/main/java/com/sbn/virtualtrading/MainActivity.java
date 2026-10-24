@@ -19,6 +19,7 @@ public class MainActivity extends Activity {
     double lastLtpPrice=Double.NaN;
     int symbolRequestVersion=0; final android.os.Handler symbolHandler=new android.os.Handler(android.os.Looper.getMainLooper()); Runnable pendingSuggest; java.util.List<InstrumentResolver.Instrument> liveSuggestions=new java.util.ArrayList<>();
     int selectedMinutes=1;
+    String currentDataTf=""; // Timeframe of loaded candle data
     List<Candle> base1m=new ArrayList<>();
     List<Candle> currentData=new ArrayList<>();
     PaperTradingManager paper;
@@ -507,6 +508,11 @@ public class MainActivity extends Activity {
         interval=x.equals("1D")?"1D":((m==1||m==5||m==15||m==25||m==60)?String.valueOf(m):"1");
         pauseReplay();
 
+        // Invalidate the old chart immediately. Never replay candles from the previous timeframe.
+        currentData.clear();
+        currentDataTf="";
+        chart.setData(currentData);
+
         // TradingView-like behavior: change the visible chart immediately when local 1m data exists.
         if(x.equals("1D")){
             status.setText("1D selected • loading daily candles…");
@@ -521,7 +527,7 @@ public class MainActivity extends Activity {
             status.setText(x+" selected • loading candles…");loadDhanMax();
         }else status.setText(x+" selected • search symbol / load history");
     }
-    void show(List<Candle>d,String msg){pauseReplay();currentData=new ArrayList<>(d);chart.setData(d);refreshPaperOverlay();int bull=0,bear=0;for(Candle c:d){if(c.signal==Candle.Signal.BULLISH)bull++;if(c.signal==Candle.Signal.BEARISH)bear++;}status.setText(msg+" • candles "+d.size()+" • Bull ▲ "+bull+" • Bear ▼ "+bear);}
+    void show(List<Candle>d,String msg){pauseReplay();currentData=new ArrayList<>(d);currentDataTf=selectedTf;chart.setData(d);refreshPaperOverlay();int bull=0,bear=0;for(Candle c:d){if(c.signal==Candle.Signal.BULLISH)bull++;if(c.signal==Candle.Signal.BEARISH)bear++;}status.setText(msg+" • TF "+currentDataTf+" • candles "+d.size()+" • Bull ▲ "+bull+" • Bear ▼ "+bear);}
     double lastTradePrice(){
         // Replay uses its candle close; normal trading prefers the latest live LTP.
         if(chart!=null && chart.isReplayMode()) return chart.executionPrice();
@@ -1006,13 +1012,18 @@ public class MainActivity extends Activity {
 
     void startReplay(){
         if(currentData==null||currentData.isEmpty()){Toast.makeText(this,"Load historical candles first",Toast.LENGTH_SHORT).show();return;}
+        if(currentDataTf.isEmpty()||!currentDataTf.equals(selectedTf)){
+            Toast.makeText(this,"Replay blocked: selected TF "+selectedTf+" but loaded candles are "+(currentDataTf.isEmpty()?"unknown":currentDataTf)+". Load history for the selected timeframe first.",Toast.LENGTH_LONG).show();
+            status.setText("REPLAY BLOCKED • selected TF "+selectedTf+" • data TF "+(currentDataTf.isEmpty()?"unknown":currentDataTf));
+            return;
+        }
         pauseReplay();
         int idx=chart.startReplayAtSelected();
         if(idx>=0){
             Candle c=chart.getCandle(idx);
             price.setText("REPLAY CLOSE ₹"+fmt(c.close));
             refreshPaperOverlay(c.close);
-            status.setText("MANUAL BACKTEST / REPLAY • "+formatCandleTime(c.time)+" • C ₹"+fmt(c.close)+" • future candles hidden");
+            status.setText("MANUAL BACKTEST / REPLAY • REPLAY TF: "+currentDataTf+" • "+formatCandleTime(c.time)+" • C ₹"+fmt(c.close)+" • future candles hidden");
         }
     }
 
@@ -1027,7 +1038,7 @@ public class MainActivity extends Activity {
             if(ev!=null){
                 status.setText("REPLAY • PAPER "+ev.type+" HIT • "+paperSymbol()+" exit ₹"+fmt(ev.exitPrice)+" • Qty "+ev.closedQty+" • Realized ₹"+fmt(ev.realizedAfter)+" • "+formatCandleTime(c.time));
                 pauseReplay();
-            }else status.setText("REPLAY • "+formatCandleTime(c.time)+" • O "+fmt(c.open)+" H "+fmt(c.high)+" L "+fmt(c.low)+" C "+fmt(c.close));
+            }else status.setText("REPLAY TF: "+currentDataTf+" • "+formatCandleTime(c.time)+" • O "+fmt(c.open)+" H "+fmt(c.high)+" L "+fmt(c.low)+" C "+fmt(c.close));
         }
         if(chart.replayAtEnd()) pauseReplay();
     }
@@ -1072,10 +1083,38 @@ public class MainActivity extends Activity {
     }
 
     void loadDhanMax(){
-        if(!validate(false))return; final String tok=token.getText().toString().trim();
-        final String apiInterval=(selectedTf.equals("1D")?"1D":((selectedMinutes==2||selectedMinutes==3||selectedMinutes==6||selectedMinutes==7||selectedMinutes==8||selectedMinutes==9||selectedMinutes==10)?"1":interval));
-        status.setText("Resolving symbol & loading MAX history • "+selectedTf+" …");
-        pauseReplay(); currentData.clear(); chart.setData(currentData);
-        withResolvedSid((sid,seg,type)->{try{List<Candle>d=DhanRepository.historicalMax(tok,sid,seg,type,apiInterval,(done,total,count,range)->runOnUiThread(()->status.setText("Fetching "+symbol.getText()+" • "+done+"/"+total+" • candles "+count+" • "+range)));runOnUiThread(()->{if(apiInterval.equals("1"))base1m=d;List<Candle> display=d;if(!selectedTf.equals("1D")&&selectedMinutes>1&&apiInterval.equals("1"))display=TimeframeAggregator.aggregateMinutes(d,selectedMinutes);show(display,"DHAN MAX • "+symbol.getText()+" • "+selectedTf+(apiInterval.equals("1")&&selectedMinutes>1?" • from 1m":""));});}catch(Exception e){runOnUiThread(()->status.setText("History error: "+errorText(e)));}});
+        if(!validate(false))return;
+        final String tok=token.getText().toString().trim();
+        final String requestedTf=selectedTf;
+        final int requestedMinutes=selectedMinutes;
+        final String requestedInterval=interval;
+        final String apiInterval=(requestedTf.equals("1D")?"1D":((requestedMinutes==2||requestedMinutes==3||requestedMinutes==6||requestedMinutes==7||requestedMinutes==8||requestedMinutes==9||requestedMinutes==10)?"1":requestedInterval));
+        status.setText("Resolving symbol & loading MAX history • "+requestedTf+" …");
+        pauseReplay();
+        currentData.clear();
+        currentDataTf="";
+        chart.setData(currentData);
+        withResolvedSid((sid,seg,type)->{
+            try{
+                List<Candle>d=DhanRepository.historicalMax(tok,sid,seg,type,apiInterval,
+                    (done,total,count,range)->runOnUiThread(()->{
+                        if(requestedTf.equals(selectedTf))
+                            status.setText("Fetching "+symbol.getText()+" • "+requestedTf+" • "+done+"/"+total+" • candles "+count+" • "+range);
+                    }));
+                runOnUiThread(()->{
+                    if(!requestedTf.equals(selectedTf)){
+                        status.setText("Ignored stale "+requestedTf+" history; current timeframe is "+selectedTf+". Load history again.");
+                        return;
+                    }
+                    if(apiInterval.equals("1"))base1m=d;
+                    List<Candle> display=d;
+                    if(!requestedTf.equals("1D")&&requestedMinutes>1&&apiInterval.equals("1"))
+                        display=TimeframeAggregator.aggregateMinutes(d,requestedMinutes);
+                    show(display,"DHAN MAX • "+symbol.getText()+" • "+requestedTf+(apiInterval.equals("1")&&requestedMinutes>1?" • from 1m":""));
+                });
+            }catch(Exception e){
+                runOnUiThread(()->status.setText("History error: "+errorText(e)));
+            }
+        });
     }
 }
