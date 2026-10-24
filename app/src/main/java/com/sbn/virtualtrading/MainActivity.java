@@ -881,7 +881,7 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            paper.clearRisk(ps);
+            paper.setRisk(ps, sl, tgt);
 
             refreshPaperOverlay(px);
             status.setText("PAPER " + (buy ? "BUY" : "SELL") + " " + ps
